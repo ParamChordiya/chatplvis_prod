@@ -45,17 +45,11 @@
       .modal .close:focus {
         color: black;
       }
-      /* Flash message category styling */
+      /* Flash message category styling (optional) */
       .info-message { color: #17a2b8; margin-bottom: 10px; }
       .success-message { color: #28a745; margin-bottom: 10px; }
       .warning-message { color: #ffc107; margin-bottom: 10px; }
       .error-message { color: #dc3545; margin-bottom: 10px; }
-
-      /* Example dark-mode toggling */
-      .dark-mode {
-        background-color: #333333;
-        color: #ffffff;
-      }
     </style>
 </head>
 <body>
@@ -66,7 +60,10 @@
         <button id="dark-mode-toggle">Dark Mode</button>
     </div>
 
-    <!-- Modal for flashed messages (if used) -->
+    <!-- 
+      Modal for flashed messages 
+      We'll dynamically inject the content from flashed messages
+    -->
     <div id="flash-modal" class="modal">
       <div class="modal-content">
         <span class="close">&times;</span>
@@ -85,40 +82,51 @@
     <div id="main-container">
         <!-- Left Panel -->
         <div id="left-panel">
-            <!-- 1. Selected Proteins List -->
-            <div id="selected-nodes-list">
-                <h3 style="display: flex; justify-content: space-between; align-items: center;">
-                    Selected Proteins: 
-                    <button id="clear-all-button" 
-                            style="margin-top: 10px; padding: 5px 10px; background: #dc3545; border: none; color: #fff; 
-                                   cursor: pointer; border-radius: 5px; font-size: 0.9em;">
-                        Clear All
-                    </button>
-                </h3>
-                <div id="selected-proteins-container">
-                    <ul id="selected-proteins"></ul>
+            
+            <!-- 1. Data Management (Upload/Select CSV + Fetch) -->
+            <div id="controls">
+                <h3>Data Management</h3>
+                
+                <!-- Row for Upload or Select CSV -->
+                <div class="controls-row">
+                    <form method="POST" enctype="multipart/form-data" action="{{ url_for('index') }}" style="display: flex; align-items: center; gap: 10px;">
+                        <label>Upload CSV:</label>
+                        <input type="file" name="file" accept=".csv">
+                        <button type="submit">Upload</button>
+                    </form>
+                    
+                    
+                </div>
+                <div class="controls-row">
+                    <form method="POST" style="display: flex; align-items: center; gap: 10px;">
+                        <label for="selected_csv">Or Select CSV:</label>
+                        <select name="selected_csv" onchange="this.form.submit()">
+                            {% for label, path in csv_file_choices %}
+                                <option value="{{ path }}" {% if path == selected_csv %} selected {% endif %}>{{ label }}</option>
+                            {% endfor %}
+                        </select>
+                    </form>
+                </div>
+
+                <!-- Row for Fetch Buttons -->
+                <div class="controls-row">
+                    <form method="POST" action="{{ url_for('fetch_function_cc') }}">
+                        <button type="submit">Fetch/Update Function [CC]</button>
+                    </form>
+                    <form method="POST" action="{{ url_for('fetch_abstracts') }}">
+                        <button type="submit">Fetch/Update Abstracts</button>
+                    </form>
                 </div>
             </div>
             
-            <!-- 2. Chatbot -->
-            <div id="chatbot" style="margin-top: 10px;">
-                <h3>Chatbot</h3>
-                <label class="toggle-container">
-                    <input type="checkbox" id="include-similar">
-                    <span class="slider"></span> Include Top 5 Similar Proteins
-                </label>
-                <div id="chatbot-messages"></div>
-                <div id="chatbot-input-container">
-                    <input type="text" id="chatbot-input" placeholder="Type your message here...">
-                    <button id="chatbot-send">Send</button>
-                </div>
-            </div>
-
-            <!-- 3. Plot Settings -->
-            <div id="controls" style="margin-top: 10px;">
+            <!-- 2. Plot Controls -->
+            <div id="controls">
                 <h3>Plot Settings</h3>
                 <form method="POST" id="controls-form">
-                    <!-- Select Column and Comparison -->
+                    <!-- Hidden field: keep the selected CSV so that re-submitting does not lose it -->
+                    <input type="hidden" name="selected_csv" value="{{ selected_csv }}">
+
+                    <!-- Flex container for Select Column and Select Comparison -->
                     <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
                         <div>
                             <label for="sel_col">Select Column:</label>
@@ -139,8 +147,8 @@
                         </div>
                     </div>
             
-                    <!-- Plot Type, Info Source, and Button -->
-                    <div style="display: flex; align-items: center; gap: 10px; ">
+                    <!-- Flex container for Plot Type, Info Source, and Button -->
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
                         <div>
                             <label for="plot_type">Plot Type:</label>
                             <select name="plot_type" id="plot_type">
@@ -165,6 +173,35 @@
                     </div>
                 </form>
             </div>
+
+            <!-- 3. Selected Proteins List -->
+            <div id="selected-nodes-list">
+                <h3 style="display: flex; justify-content: space-between; align-items: center;">
+                    Selected Proteins: 
+                    <button id="clear-all-button" 
+                            style="margin-top: 10px; padding: 5px 10px; background: #dc3545; border: none; color: #fff; 
+                                   cursor: pointer; border-radius: 5px; font-size: 0.9em;">
+                        Clear All
+                    </button>
+                </h3>
+                <div id="selected-proteins-container">
+                    <ul id="selected-proteins"></ul>
+                </div>
+            </div>
+            
+            <!-- 4. Chatbot -->
+            <div id="chatbot" style="margin-top: 20px;">
+                <h3>Chatbot</h3>
+                <label class="toggle-container">
+                    <input type="checkbox" id="include-similar">
+                    <span class="slider"></span> Include Top 5 Similar Proteins
+                </label>
+                <div id="chatbot-messages"></div>
+                <div id="chatbot-input-container">
+                    <input type="text" id="chatbot-input" placeholder="Type your message here...">
+                    <button id="chatbot-send">Send</button>
+                </div>
+            </div>
         </div>
 
         <!-- Graph Container -->
@@ -172,28 +209,35 @@
     </div>
 
     <script>
-        // Show loading screen immediately
+        // Show loading screen
         document.getElementById('loading-screen').style.display = 'flex';
 
-        // If you use flashed messages, handle them here:
-        var flashedMessages = [];  // If using get_flashed_messages, pass them in
+        // We pass any flashed messages into JavaScript:
+        var flashedMessages = {{ get_flashed_messages(with_categories=true)|tojson }};
+
+        // If there are messages, show them in the modal
         if (flashedMessages.length > 0) {
             let content = '';
             flashedMessages.forEach(function(item) {
                 const category = item[0];
                 const message = item[1];
+                // We'll map category -> CSS class like "error-message" / "info-message"
                 let categoryClass = category + "-message";
                 content += `<div class="${categoryClass}">${message}</div>`;
             });
 
-            const flashModal = document.getElementById('flash-modal');
             document.getElementById('modal-messages').innerHTML = content;
+            // Open the modal
+            const flashModal = document.getElementById('flash-modal');
             flashModal.style.display = 'block';
 
+            // Close button
             const closeBtn = flashModal.querySelector('.close');
             closeBtn.onclick = function() {
                 flashModal.style.display = 'none';
             };
+
+            // Close if user clicks outside modal-content
             window.onclick = function(event) {
                 if (event.target == flashModal) {
                     flashModal.style.display = 'none';
@@ -210,11 +254,11 @@
         var selectedProteinsList = document.getElementById('selected-proteins');
         var clearAllButton = document.getElementById('clear-all-button');
 
+        // Prepare data for Plotly
         let data, layout;
 
-        // Depending on 2D vs 3D
         if (plotType.startsWith("3D")) {
-            // 3D scatter
+            // 3D scatter - using WebGL
             const nodeX = nodes.map(node => node.x);
             const nodeY = nodes.map(node => node.y);
             const nodeZ = nodes.map(node => node.z);
@@ -223,7 +267,40 @@
             const sizes = nodes.map(node => node.size);
             const nodeColors = nodes.map(node => node.color);
 
+            const nodePositions = nodes.reduce((acc, node) => {
+                acc[node.id] = node;
+                return acc;
+            }, {});
+
+            // Edges
+            const edgeX = [];
+            const edgeY = [];
+            const edgeZ = [];
+            for (let edge of edges) {
+                const source = nodePositions[edge.source];
+                const target = nodePositions[edge.target];
+                if(source && target) {
+                    edgeX.push(source.x, target.x, null);
+                    edgeY.push(source.y, target.y, null);
+                    edgeZ.push(source.z, target.z, null);
+                }
+            }
+
             data = [
+                // Edges
+                {
+                    x: edgeX,
+                    y: edgeY,
+                    z: edgeZ,
+                    mode: 'lines',
+                    type: 'scatter3d',
+                    line: {
+                        color: 'rgba(150,150,150,0.3)', // Reduced opacity
+                        width: 1, 
+                    },
+                    hoverinfo: 'none',
+                },
+                // Nodes
                 {
                     x: nodeX,
                     y: nodeY,
@@ -233,7 +310,7 @@
                     marker: {
                         size: sizes,
                         color: nodeColors,
-                        opacity: 0.9,
+                        opacity: 0.7,  // Slightly reduced opacity
                         line: {
                             color: '#FFFFFF',
                             width: 0.5
@@ -245,7 +322,7 @@
                     hoverlabel: {
                         bgcolor: '#FFFFFF',
                         font: {color: '#000000'},
-                    }
+                    },
                 }
             ];
 
@@ -260,12 +337,18 @@
                     },
                 },
                 paper_bgcolor: '#ffffff',
-                margin: { l: 0, r: 0, b: 0, t: 0 },
-                showlegend: false
+                margin: {
+                    l: 0,
+                    r: 0,
+                    b: 0,
+                    t: 0,
+                },
+                showlegend: false,
+                uirevision: 'true',  // Preserve camera position on updates
             };
 
         } else {
-            // 2D scatter
+            // 2D scatter - using WebGL
             const nodeX = nodes.map(node => node.x);
             const nodeY = nodes.map(node => node.y);
             const labels = nodes.map(node => node.label);
@@ -278,11 +361,11 @@
                     x: nodeX,
                     y: nodeY,
                     mode: 'markers',
-                    type: 'scatter',
+                    type: 'scattergl',  // Changed to scattergl
                     marker: {
                         size: sizes,
                         color: nodeColors,
-                        opacity: 0.9,
+                        opacity: 0.7,
                         line: {
                             color: '#FFFFFF',
                             width: 0.5
@@ -300,19 +383,41 @@
 
             layout = {
                 dragmode: 'select',
-                xaxis: {visible: false},
-                yaxis: {visible: false},
+                xaxis: {
+                    visible: false,
+                    scaleanchor: 'y',  // Maintain aspect ratio
+                },
+                yaxis: {
+                    visible: false,
+                },
                 paper_bgcolor: '#ffffff',
-                margin: { l: 0, r: 0, b: 0, t: 0 },
-                showlegend: false
+                margin: {
+                    l: 0,
+                    r: 0,
+                    b: 0,
+                    t: 0,
+                },
+                showlegend: false,
+                uirevision: 'true',  // Preserve zoom/pan on updates
             };
         }
 
-        Plotly.newPlot('graph', data, layout).then(function() {
+        // Configuration for better performance
+        const config = {
+            responsive: true,
+            displayModeBar: true,
+            scrollZoom: true,
+            displaylogo: false,
+            modeBarButtonsToRemove: ['toImage', 'sendDataToCloud'],
+        };
+
+        // Render the plot with config
+        Plotly.newPlot('graph', data, layout, config).then(function() {
+            // Hide loading screen
             document.getElementById('loading-screen').style.display = 'none';
         });
 
-        // Update list of selected proteins
+        // Update the UI list of selected proteins
         function updateSelectedProteinsList() {
             selectedProteinsList.innerHTML = '';
             selectedNodeIds.forEach(function(id) {
@@ -322,20 +427,19 @@
                     li.innerHTML = `${node.protein_name} 
                         <button class="remove-protein" 
                                 data-node-id="${id}" 
-                                style="margin-left:10px;background:#dc3545;border:none;color:#fff;
-                                       border-radius:3px;padding:2px 5px;cursor:pointer;">
-                            X
-                        </button>`;
+                                style="margin-left:10px;background:#dc3545;border:none;color:#fff;border-radius:3px;padding:2px 5px;cursor:pointer;">X</button>`;
                     selectedProteinsList.appendChild(li);
                 }
             });
         }
 
-        // Single-click selection
-        graphDiv.on('plotly_click', function(data) {
+        // Single-click selection (both 2D and 3D)
+        graphDiv.on('plotly_click', function(data){
             var point = data.points[0];
             if(!point) return;
             var node_id = point.customdata;
+            console.log('Clicked node:', node_id);
+
             if (selectedNodeIds.includes(node_id)) {
                 selectedNodeIds = selectedNodeIds.filter(id => id !== node_id);
             } else {
@@ -344,14 +448,15 @@
             updateSelectedProteinsList();
         });
 
-        // Box-select (in 2D)
+        // Box-select (only works in 2D scatter)
         graphDiv.on('plotly_selected', function(eventData) {
             if (!eventData) return;
+            // Replace the entire selection with the box-selected points
             selectedNodeIds = eventData.points.map(pt => pt.customdata);
             updateSelectedProteinsList();
         });
 
-        // Remove single protein
+        // Removing a single protein via the "X" button
         document.getElementById('selected-proteins-container').addEventListener('click', function(e) {
             if (e.target && e.target.classList.contains('remove-protein')) {
                 var nodeIdToRemove = parseInt(e.target.getAttribute('data-node-id'));
@@ -360,18 +465,24 @@
             }
         });
 
-        // Clear all
+        // Clear all selections
         clearAllButton.addEventListener('click', function() {
             selectedNodeIds = [];
             updateSelectedProteinsList();
         });
 
-        // Chatbot
+        // Chatbot functionality
         var sendButton = document.getElementById('chatbot-send');
         var inputField = document.getElementById('chatbot-input');
         var messagesDiv = document.getElementById('chatbot-messages');
 
         sendButton.onclick = function(){
+            // Keep the alert if no nodes are selected
+            if (selectedNodeIds.length === 0) {
+                alert('Please select at least one node first.');
+                return;
+            }
+
             var message = inputField.value.trim();
             if (message === '') {
                 alert('Please enter a message.');
@@ -379,12 +490,15 @@
             }
 
             var includeSimilar = document.getElementById('include-similar').checked;
+
             messagesDiv.innerHTML += '<p><strong>You:</strong> ' + message + '</p>';
             inputField.value = '';
 
             fetch('/chatbot', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json'
+                },
                 body: JSON.stringify({
                     node_ids: selectedNodeIds,
                     message: message,
