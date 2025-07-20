@@ -386,7 +386,7 @@ body.dark-mode #selected-nodes-list {
 
 #selected-proteins-container {
     /* max-height: 500px; */
-    height: 300px ;
+    height: 75px ;
     overflow-y: auto;
     border: 1px solid #ccc;
     padding: 10px;
