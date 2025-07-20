@@ -9,7 +9,7 @@ from sentence_transformers import SentenceTransformer
 DATA_DIR:          Path = Path("data")
 CSV_FILE:          Path = DATA_DIR / "mtuberculosis_df_abs.csv"
 MODEL_NAME:        str  = "sentence-transformers/gtr-t5-xl"
-DEVICE:            str  = "cuda"                       # set "cuda" if GPU is available
+DEVICE:            str  = "cpu"                       # set "cuda" if GPU is available
 DEFAULT_COLUMN:    str  = "Function [CC]"
 
 # Map column names ➜ filename suffixes (add more here as needed)
