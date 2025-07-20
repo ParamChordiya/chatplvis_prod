@@ -26,7 +26,7 @@ EMBED_TEMPLATE: Path = DATA_DIR / "embeddings_{suffix}.npy"
 _model = SentenceTransformer(MODEL_NAME, device=DEVICE)
 
 
-def compute_embeddings(column: str = DEFAULT_COLUMN) -> np.ndarray:
+def compute_embeddings(column):
     """
     Return cached embeddings for `column`, or compute & cache them if missing.
 
