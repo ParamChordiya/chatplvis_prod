@@ -1,391 +1,341 @@
-# app.py
-from flask import Flask, render_template, request, jsonify
+########################################################
+# imports
+########################################################
+
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash
 import pandas as pd
 import numpy as np
 import os
 import re
-
-from multiprocessing import Pool
-
-pool = Pool()
-# Do work with pool
-pool.close()
-pool.join()
-
-# import psutil
-# import GPUtil
-
-from chatbot import get_chatbot_response
-from embeddings import build_or_load_faiss_index
+from werkzeug.utils import secure_filename
 from sklearn.decomposition import PCA
+from embeddings import compute_embeddings
+from chatbot import get_chatbot_response
+from preproc import update_csv
+from auth import setup_hf_auth
+
+########################################################
+# auth/bootstrap
+########################################################
+
+# ensure HF auth is set up before any model is instantiated
+setup_hf_auth()
+
+
+########################################################
+# flask app setup
+########################################################
 
 app = Flask(__name__)
+app.secret_key = "b8f2e9c1a7d54f04b0a1e37c9b6f8d2e"
 
-# ----------------------------------------------------------------
-# SINGLE CSV PATH (the only CSV used in the app)
-# ----------------------------------------------------------------
-CSV_PATH = 'uploads/mycobacterium_proteome_df.csv'
 
-# Default user selections
-sel_col = 'Total_Counts'
-sel_comp = 'All proteomes'
-plot_type = '2D'                  # default plot type
-info_source = 'Function [CC]'     # default info source
+########################################################
+# variables
+########################################################
+
+UPLOAD_FOLDER = 'uploads'
+UPDATES_FOLDER = 'updates'
+DATA_FOLDER = 'data'
+default_csv = f'{DATA_FOLDER}/mycobacterium_proteome_df.csv'
+
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(UPDATES_FOLDER, exist_ok=True)
+
+# Allowed extensions for CSV files
+ALLOWED_EXTENSIONS = {'csv'}
+
+# UI state
+selected_csv_filename = 'data/mycobacterium_proteome_df.csv'
+plot_type = '2D UMAP Based'        # default plot type
+info_source = 'Function [CC]'      # default info source
+
+# single, uniform marker size for all nodes
+UNIFORM_NODE_SIZE = 10
+
+
+########################################################
+# helper functions
+########################################################
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def get_available_csv_files():
+    csv_files = []
+    default_path = default_csv
+    if os.path.exists(default_path):
+        csv_files.append(('mycobacterium_proteome_df.csv', default_path))
+
+    if os.path.isdir(UPLOAD_FOLDER):
+        for f in os.listdir(UPLOAD_FOLDER):
+            if f.lower().endswith('.csv'):
+                full_path = os.path.join(UPLOAD_FOLDER, f)
+                csv_files.append((f"[Uploaded] {f}", full_path))
+
+    if os.path.isdir(UPDATES_FOLDER):
+        for f in os.listdir(UPDATES_FOLDER):
+            if f.lower().endswith('.csv'):
+                full_path = os.path.join(UPDATES_FOLDER, f)
+                csv_files.append((f"[Updated] {f}", full_path))
+
+    return csv_files
+
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    """
-    Render the main page and handle plot-related form submissions.
-    We read only from CSV_PATH = 'uploads/mycobacterium_proteome_df.csv'.
-    """
-    global sel_col, sel_comp, plot_type, info_source
+    global selected_csv_filename, plot_type, info_source
 
-    # Handle user form submission for the plot settings
     if request.method == 'POST':
-        sel_col = request.form.get('sel_col', sel_col)
-        sel_comp = request.form.get('sel_comp', sel_comp)
+        # handle CSV upload
+        if 'file' in request.files:
+            file = request.files['file']
+            if file and allowed_file(file.filename):
+                filename = secure_filename(file.filename)
+                upload_path = os.path.join(UPLOAD_FOLDER, filename)
+                file.save(upload_path)
+
+                # ensure required columns exist (create empty if missing)
+                required_cols = ["InterPro", "PubMed ID", "Function [CC]", "Abstracts"]
+                try:
+                    df_test = pd.read_csv(upload_path)
+                except Exception as e:
+                    flash(f"Error reading CSV: {e}", "error")
+                    return redirect(url_for('index'))
+
+                missing = [c for c in required_cols if c not in df_test.columns]
+                if missing:
+                    flash(f"The uploaded CSV is missing required columns: {missing}", "error")
+                    for mc in missing:
+                        df_test[mc] = ""
+                    df_test.to_csv(upload_path, index=False)
+                    flash("Missing columns added as empty. CSV updated.", "info")
+
+                flash(f"File '{filename}' uploaded successfully!", "success")
+                selected_csv_filename = upload_path
+            else:
+                flash("Invalid file format. Only CSV files are allowed.", "error")
+            return redirect(url_for('index'))
+
+        # handle CSV selection from dropdown
+        if 'selected_csv' in request.form:
+            selected_csv_path = request.form.get('selected_csv')
+            if selected_csv_path and os.path.exists(selected_csv_path):
+                selected_csv_filename = selected_csv_path
+
+        # plot controls (only plot type + info source now)
         plot_type = request.form.get('plot_type', plot_type)
         info_source = request.form.get('info_source', info_source)
 
-    # Read the single CSV
-    if not os.path.exists(CSV_PATH):
-        raise FileNotFoundError(
-            f"Error: The CSV file '{CSV_PATH}' does not exist. "
-            "Please place it in the uploads folder."
-        )
+    # read chosen CSV (fallback to default if missing)
+    if not os.path.exists(selected_csv_filename):
+        flash(f"Selected file {selected_csv_filename} not found. Reverting to default CSV.", "error")
+        selected_csv_filename = os.path.join(DATA_FOLDER, 'mycobacterium_proteome_df.csv')
 
     try:
-        mycobacterium_df = pd.read_csv(CSV_PATH)
+        df = pd.read_csv(selected_csv_filename)
     except Exception as e:
-        raise RuntimeError(f"Error reading CSV '{CSV_PATH}': {e}")
+        flash(f"Error reading selected CSV ({selected_csv_filename}): {e}", "error")
+        selected_csv_filename = os.path.join(DATA_FOLDER, 'mycobacterium_proteome_df.csv')
+        df = pd.read_csv(selected_csv_filename)
 
-    # Ensure we have a stable abs_id column
-    if 'abs_id' not in mycobacterium_df.columns:
-        mycobacterium_df['abs_id'] = range(len(mycobacterium_df))
-        mycobacterium_df.to_csv(CSV_PATH, index=False)
+    # warn if chosen info_source missing
+    if info_source not in df.columns:
+        flash(f"The column '{info_source}' does not exist in the current CSV.", "error")
 
+    # clean Organism text & set categorical colors
     def clean_text(text):
         text = re.sub(r'\d+', '', str(text))
         while '(' in text and ')' in text:
             text = re.sub(r'\([^()]*\)', '', text)
         return text.strip()
 
-    # Clean "Organism" if it exists
-    if 'Organism' in mycobacterium_df.columns:
-        mycobacterium_df['Organism'] = mycobacterium_df['Organism'].apply(clean_text)
-        organisms = mycobacterium_df['Organism'].unique()
-
+    if 'Organism' in df.columns:
+        df['Organism'] = df['Organism'].apply(clean_text)
+        organisms = df['Organism'].fillna('Unknown').unique()
+        # categorical palette (multi-color)
         color_palette = [
-            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728',
-            '#9467bd', '#8c564b', '#e377c2', '#7f7f7f',
-            '#bcbd22', '#17becf'
+            '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22',
+            '#17becf', '#1f77b4'
         ]
-        color_mapping = {
-            organism: color_palette[i % len(color_palette)]
-            for i, organism in enumerate(organisms)
-        }
-        mycobacterium_df['Color'] = mycobacterium_df['Organism'].map(color_mapping)
+        color_mapping = {org: color_palette[i % len(color_palette)] for i, org in enumerate(organisms)}
+        df['Color'] = df['Organism'].map(color_mapping)
     else:
-        # Default color
-        mycobacterium_df['Color'] = '#1f77b4'
+        # fallback palette by cluster, if available
+        labels = df['Cluster Label'].fillna('Unknown').astype(str).unique() if 'Cluster Label' in df.columns else ['All']
+        color_palette = [
+            '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22',
+            '#17becf', '#1f77b4'
+        ]
+        color_mapping = {lab: color_palette[i % len(color_palette)] for i, lab in enumerate(labels)}
+        df['Color'] = df.get('Cluster Label', pd.Series(['All'] * len(df))).astype(str).map(color_mapping)
 
-    # Optionally load counts from Excel
-    counts_path = os.path.join('data', 'counts_all_stages_MAGECK_with_ES.xlsx')
-    if os.path.exists(counts_path):
-        counts_df = pd.read_excel(counts_path)
-        counts_df['clean_orf'] = counts_df['orf'].apply(
-            lambda x: re.sub(r'(?<=RV)BD', '', str(x), count=1)
-        )
-        counts_df['clean_name'] = counts_df['name'].apply(
-            lambda x: re.sub(r'(?<=RV)BD', '', str(x), count=1)
-        )
-    else:
-        counts_df = pd.DataFrame()
-
-    # Separate out the M. tuberculosis rows (if “Organism” is present)
-    if 'Organism' in mycobacterium_df.columns:
-        tb_df = mycobacterium_df[mycobacterium_df['Organism'] == 'Mycobacterium tuberculosis'].copy()
-    else:
-        tb_df = mycobacterium_df.copy()
-
-    # Ensure counts columns exist
-    cols = ['Counts_1st', 'Counts_2nd', 'Counts_3rd', 'Total_Counts', 'Rank']
-    import numpy as np
-    for c in cols:
-        if c not in tb_df.columns:
-            tb_df[c] = np.nan
-
-    # Merge counts if available
-    if not counts_df.empty:
-        for _, row in counts_df.iterrows():
-            clean_orf_escaped = re.escape(str(row['clean_orf']))
-            clean_name_escaped = re.escape(str(row['clean_name']))
-            pattern = f"{clean_orf_escaped}|{clean_name_escaped}"
-            if 'Gene Names' in tb_df.columns:
-                mask = tb_df['Gene Names'].str.contains(pattern, case=False, na=False, regex=True)
-                tb_df.loc[mask, cols] = [
-                    row['Counts_1st'],
-                    row['Counts_2nd'],
-                    row['Counts_3rd'],
-                    row['Total_Counts'],
-                    row['Rank']
-                ]
-
-    # Normalize them if needed
-    def normalize_columns(df, columns):
-        for column_name in columns:
-            min_val = df[column_name].min()
-            max_val = df[column_name].max()
-            if max_val - min_val == 0:
-                df[column_name + '_normalized'] = 0
-            else:
-                df[column_name + '_normalized'] = (
-                    (df[column_name] - min_val) / (max_val - min_val)
-                )
-        return df
-
-    tb_df = normalize_columns(tb_df, cols)
-
-    # Ensure sel_col is valid
-    if sel_col not in tb_df.columns:
-        # fallback to a normalized column if possible
-        possible_norm = [c for c in tb_df.columns if c.endswith('_normalized')]
-        if possible_norm:
-            sel_col = possible_norm[0]
-        else:
-            sel_col = tb_df.columns[0]
-
-    tb_df_subset = tb_df[['Entry', sel_col, 'Rank', 'abs_id']].copy()
-
-    # Build plot_df based on user selection
-    if sel_comp == 'All proteomes':
-        mycobacterium_df_subset = mycobacterium_df.copy()
-        plot_df = pd.merge(
-            mycobacterium_df_subset,
-            tb_df_subset,
-            how='left',
-            on=['Entry','abs_id'],
-            suffixes=('', '_tb')
-        )
-        plot_df[sel_col] = plot_df[sel_col].fillna(0)
-    elif sel_comp == 'Mycobacterium tuberculosis':
-        plot_df = tb_df.copy()
-        plot_df[sel_col] = plot_df[sel_col].fillna(0)
-    else:
-        # e.g., "vs smegmatis"
-        other_org = sel_comp[3:]
-        if 'Organism' in mycobacterium_df.columns:
-            mycobacterium_df_subset = mycobacterium_df[
-                (mycobacterium_df['Organism'] == 'Mycobacterium tuberculosis')
-                | (mycobacterium_df['Organism'].str.contains(other_org, case=False, na=False))
-            ]
-        else:
-            mycobacterium_df_subset = mycobacterium_df.copy()
-
-        plot_df = pd.merge(
-            mycobacterium_df_subset,
-            tb_df_subset,
-            how='left',
-            on=['Entry','abs_id'],
-            suffixes=('', '_tb')
-        )
-        plot_df[sel_col] = plot_df[sel_col].fillna(0)
-
-    # ----------------------------------------------------------------
-    # SET ALL NODE SIZES TO A SINGLE CONSTANT (no expression-based scaling)
-    # ----------------------------------------------------------------
-    plot_df['Size'] = 10  # pick any fixed size you like, e.g. 10
-
-    # Build or load the FAISS index for the chosen info_source
+    # embeddings (for 3D coordinates if requested)
     embeddings = None
-    faiss_index = None
-    if info_source in mycobacterium_df.columns:
-        try:
-            faiss_index, embeddings = build_or_load_faiss_index(CSV_PATH, info_source)
-        except Exception:
-            pass
+    if info_source in df.columns:
+        embeddings = compute_embeddings(compute_embeddings_csv=selected_csv_filename,column=info_source)
+    else:
+        flash(f"Cannot compute embeddings for '{info_source}' since it's missing in the CSV.", "warning")
 
-    # If 3D plot, do PCA on the embeddings if present
     coords = None
     if embeddings is not None and plot_type.startswith('3D'):
-        pca = PCA(n_components=3)
-        coords = pca.fit_transform(embeddings)
+        coords_file = os.path.join(DATA_FOLDER, f"coordinates_{info_source}.npy")
+        if os.path.exists(coords_file):
+            coords = np.load(coords_file)
+        else:
+            pca = PCA(n_components=3)
+            coords = pca.fit_transform(embeddings)
+            np.save(coords_file, coords)
 
-    # Build node objects
+    # build nodes (uniform size, multicolor only — no blue overlay layer anywhere)
     nodes = []
-    for i in range(len(plot_df)):
-        row = plot_df.iloc[i]
+    for i in range(len(df)):
+        row = df.iloc[i]
         protein = row.get('Protein names', 'N/A')
         organism = row.get('Organism', 'N/A')
         gene = row.get('Gene Names', 'N/A')
         pathway = row.get('Pathway', 'N/A')
         anot = row.get('Annotation', 'N/A')
-        counts_val = row.get(sel_col, 'N/A')
-        size = row.get('Size', 10)
         label = row.get('Cluster Label', 'N/A')
-        color = row.get('Color', '#1f77b4')
-        abs_id = row.get('abs_id', i)
+        color = row.get('Color', '#7f7f7f')  # categorical color
 
-        # Build hover text
-        text = (
-            f"Protein Names: {protein}<br>"
-            f"Organism: {organism}<br>"
-            f"Gene Names: {gene}<br>"
-            f"Pathway: {pathway}<br>"
-            f"Counts: {counts_val}<br>"
-            f"Annotation: {anot}<br>"
-            f"Cluster: {label}"
+        hover = (
+            f"Protein Names: {protein}<br>Organism: {organism}<br>Gene Names: {gene}<br>"
+            f"Pathway: {pathway}<br>Annotation: {anot}<br>Cluster: {label}"
         )
 
-        if coords is not None and i < len(coords) and plot_type.startswith('3D'):
+        if plot_type.startswith('3D') and coords is not None and i < len(coords):
             x, y, z = coords[i]
             node = {
-                'id': int(abs_id),
+                'id': int(i),
                 'protein_name': protein,
-                'label': text,
+                'label': hover,
                 'x': float(x),
                 'y': float(y),
                 'z': float(z),
                 'group': str(label),
-                'size': float(size),
+                'size': float(UNIFORM_NODE_SIZE),
                 'color': color,
             }
         else:
             x2d = row.get('UMAP 1', 0.0)
             y2d = row.get('UMAP 2', 0.0)
             node = {
-                'id': int(abs_id),
+                'id': int(i),
                 'protein_name': protein,
-                'label': text,
+                'label': hover,
                 'x': float(x2d),
                 'y': float(y2d),
                 'group': str(label),
-                'size': float(size),
+                'size': float(UNIFORM_NODE_SIZE),
                 'color': color,
             }
+
         nodes.append(node)
 
-    edges = []  # no edges in this example
+    edges = []  # still no edges in this view
 
-    # Build dynamic dropdown options
-    column_options = [
-        'Counts_1st_normalized',
-        'Counts_2nd_normalized',
-        'Counts_3rd_normalized',
-        'Total_Counts_normalized',
-        'Rank_normalized'
-    ]
-    for c in cols:
-        if c in tb_df.columns and c not in column_options:
-            column_options.append(c)
-
-    comparison_options = [
-        'All proteomes',
-        'Mycobacterium tuberculosis',
-        'vs smegmatis',
-        'vs marinum',
-        'vs leprae',
-        'vs kansasii',
-        'vs intracellulare',
-        'vs fortuitum',
-        'vs bovis'
-    ]
+    # plot & info options
     plot_options = ['2D UMAP Based', '3D PCA Based']
-    info_options = ['Function [CC]', 'Abstracts']
+    info_options = ['Abstracts', 'Function [CC]']
+
+    # list of CSVs for dropdown
+    csv_file_choices = get_available_csv_files()
 
     return render_template(
         'index.html',
         nodes=nodes,
         edges=edges,
-        sel_col=sel_col,
-        sel_comp=sel_comp,
-        column_options=column_options,
-        comparison_options=comparison_options,
         plot_type=plot_type,
         plot_options=plot_options,
         info_source=info_source,
-        info_options=info_options
+        info_options=info_options,
+        csv_file_choices=csv_file_choices,
+        selected_csv=selected_csv_filename
     )
 
 
 @app.route('/chatbot', methods=['POST'])
 def chatbot():
-    """
-    Chatbot endpoint. If no node is selected (node_ids is empty), respond with
-    'No node was selected.' Otherwise, proceed with FAISS-based lookup.
-    """
+    global info_source, selected_csv_filename
     data = request.get_json()
     node_ids = data.get('node_ids', [])
     message = data.get('message', '')
     include_similar = data.get('include_similar', True)
-
-    if not node_ids:
-        return jsonify({'message': "No node was selected."})
-
-    # Convert node_ids to integer if needed
-    node_ids_int = []
-    for n in node_ids:
-        try:
-            node_ids_int.append(int(n))
-        except ValueError:
-            continue
-
     response_text = get_chatbot_response(
-        node_ids=node_ids_int,
+        node_ids=node_ids,
         message=message,
         include_similar=include_similar,
         info_source=info_source,
-        csv_path=CSV_PATH
+        csv_path=selected_csv_filename
     )
     return jsonify({'message': response_text})
 
 
-# @app.route("/system_info")
-# def system_info():
-#     # CPU cores
-#     total_cores = psutil.cpu_count(logical=True)   # total logical cores
-#     physical_cores = psutil.cpu_count(logical=False)
-    
-#     # CPU usage (as a percentage)
-#     cpu_usage_percent = psutil.cpu_percent(interval=0.5)
-    
-#     # Memory usage
-#     memory_info = psutil.virtual_memory()
-#     total_memory_gb = round(memory_info.total / (1024**3), 2)
-#     used_memory_gb = round(memory_info.used / (1024**3), 2)
-#     memory_usage_percent = memory_info.percent
+@app.route('/fetch_function_cc', methods=['POST'])
+def fetch_function_cc():
+    """
+    Fetch/Update 'Function [CC]' via UniProt for missing rows in the current CSV,
+    then save the updated CSV into the 'updates' folder.
+    """
+    global selected_csv_filename
 
-#     # GPU info (for NVIDIA GPUs)
-#     gpus = GPUtil.getGPUs()
-#     gpu_list = []
-#     for gpu in gpus:
-#         gpu_info = {
-#             "id": gpu.id,
-#             "name": gpu.name,
-#             "load_percent": round(gpu.load * 100, 2),
-#             "memory_total_gb": round(gpu.memoryTotal / 1024, 2),
-#             "memory_used_gb": round(gpu.memoryUsed / 1024, 2),
-#             "memory_free_gb": round(gpu.memoryFree / 1024, 2),
-#             "temperature_c": gpu.temperature
-#         }
-#         gpu_list.append(gpu_info)
+    if not os.path.exists(selected_csv_filename):
+        flash(f"Selected file {selected_csv_filename} does not exist.", "error")
+        return redirect(url_for('index'))
 
-#     # Build a JSON response
-#     response_data = {
-#         "cpu": {
-#             "logical_cores": total_cores,
-#             "physical_cores": physical_cores,
-#             "usage_percent": cpu_usage_percent
-#         },
-#         "memory": {
-#             "total_gb": total_memory_gb,
-#             "used_gb": used_memory_gb,
-#             "usage_percent": memory_usage_percent
-#         },
-#         "gpus": gpu_list
-#     }
-    
-#     return jsonify(response_data)
+    base_name = os.path.basename(selected_csv_filename)
+    name_no_ext = os.path.splitext(base_name)[0]
+    new_filename = f"{name_no_ext}_functioncc_updated.csv"
+    new_filepath = os.path.join(UPDATES_FOLDER, new_filename)
+
+    try:
+        update_csv(selected_csv_filename)  # in-place update by preproc.py
+        df_updated = pd.read_csv(selected_csv_filename)
+        df_updated.to_csv(new_filepath, index=False)
+        flash(f"Function [CC] updated and saved as '{new_filename}' in updates folder.", "success")
+    except Exception as e:
+        flash(f"Error updating Function [CC]: {e}", "error")
+
+    return redirect(url_for('index'))
+
+
+@app.route('/fetch_abstracts', methods=['POST'])
+def fetch_abstracts():
+    global selected_csv_filename
+    if not os.path.exists(selected_csv_filename):
+        flash(f"Selected file {selected_csv_filename} does not exist.", "error")
+        return redirect(url_for('index'))
+
+    df = pd.read_csv(selected_csv_filename)
+    if 'Abstracts' not in df.columns:
+        flash("The 'Abstracts' column is missing in this CSV. Cannot fetch or update abstracts.", "error")
+        return redirect(url_for('index'))
+
+    df['Abstracts'] = df['Abstracts'].fillna('No data')
+
+    base_name = os.path.basename(selected_csv_filename)
+    name_no_ext = os.path.splitext(base_name)[0]
+    new_filename = f"{name_no_ext}_abstracts_updated.csv"
+    new_filepath = os.path.join(UPDATES_FOLDER, new_filename)
+    df.to_csv(new_filepath, index=False)
+
+    flash(f"Abstracts updated (placeholder) and saved as '{new_filename}' in updates folder.", "success")
+    return redirect(url_for('index'))
+
 
 if __name__ == '__main__':
-    app.run(debug=True, port='0')
+    app.run(debug=True, port=0)
+
+# if __name__ == "__main__":
+#     port = int(os.getenv("PORT", 5000))
+#     app.run(
+#         host=os.getenv("HOST", "127.0.0.1"),
+#         port=port,
+#         debug=os.getenv("FLASK_DEBUG", "0") == "1",
+#         use_reloader=os.getenv("FLASK_USE_RELOADER", "1") == "1",
+#         threaded=True,
+#     )
