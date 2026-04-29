@@ -1,412 +1,1284 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
-    <meta charset="UTF-8">
-    <title>ChatPLVis</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <!-- Include Plotly.js -->
-    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ChatPLVis — Proteome Explorer</title>
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+  <style>
+    /* ── APPLE DESIGN TOKENS ─────────────────────────────────── */
+    :root {
+      --blue:        #007AFF;
+      --blue-bg:     rgba(0,122,255,0.08);
+      --green:       #34C759;
+      --red:         #FF3B30;
+      --gray:        #8E8E93;
+      --gray2:       #AEAEB2;
+      --gray3:       #C7C7CC;
+      --gray4:       #D1D1D6;
+      --gray5:       #E5E5EA;
+      --gray6:       #F2F2F7;
 
-    <style>
-      /* Basic modal styling */
-      .modal {
-        display: none; /* Hidden by default */
-        position: fixed; 
-        z-index: 9999; 
-        left: 0; 
-        top: 0; 
-        width: 100%; 
-        height: 100%; 
-        overflow: auto; 
-        background-color: rgba(0,0,0,0.4); 
-      }
-      .modal-content {
-        background-color: #fefefe;
-        margin: 15% auto; 
-        padding: 20px;
-        border: 1px solid #888;
-        width: 80%;
-        max-width: 600px;
-        border-radius: 8px;
-        position: relative;
-      }
-      .modal .close {
-        color: #aaa;
-        float: right;
-        font-size: 28px;
-        font-weight: bold;
-        cursor: pointer;
-        position: absolute;
-        top: 10px;
-        right: 15px;
-      }
-      .modal .close:hover,
-      .modal .close:focus {
-        color: black;
-      }
-      /* Flash message category styling */
-      .info-message { color: #17a2b8; margin-bottom: 10px; }
-      .success-message { color: #28a745; margin-bottom: 10px; }
-      .warning-message { color: #ffc107; margin-bottom: 10px; }
-      .error-message { color: #dc3545; margin-bottom: 10px; }
+      --bg:          #F2F2F7;
+      --bg2:         #FFFFFF;
+      --bg3:         #EFEFF4;
+      --surf:        rgba(255,255,255,0.82);
+      --accent:      var(--blue);
+      --accent-bg:   var(--blue-bg);
 
-      /* Example dark-mode toggling */
-      .dark-mode {
-        background-color: #333333;
-        color: #ffffff;
+      --text1:       rgba(0,0,0,1.00);
+      --text2:       rgba(60,60,67,0.60);
+      --text3:       rgba(60,60,67,0.30);
+      --sep:         rgba(60,60,67,0.20);
+      --fill1:       rgba(120,120,128,0.20);
+      --fill2:       rgba(120,120,128,0.16);
+      --fill3:       rgba(118,118,128,0.12);
+
+      --glass:       blur(20px) saturate(180%);
+      --r-sm:        8px;
+      --r-md:        12px;
+      --r-lg:        16px;
+      --r-xl:        20px;
+      --sidebar-w:   300px;
+      --ease-spring: cubic-bezier(0.34,1.56,0.64,1);
+      --ease-out:    cubic-bezier(0.0,0.0,0.2,1);
+      --ease-std:    cubic-bezier(0.4,0.0,0.2,1);
+      --t-fast:      0.15s;
+      --t-std:       0.25s;
+      --t-slow:      0.35s;
+    }
+    [data-theme="dark"] {
+      --bg:          #000000;
+      --bg2:         #1C1C1E;
+      --bg3:         #2C2C2E;
+      --surf:        rgba(28,28,30,0.92);
+      --accent:      #0A84FF;
+      --blue:        #0A84FF;
+      --green:       #30D158;
+      --red:         #FF453A;
+      --gray:        #98989D;
+      --gray2:       #636366;
+      --gray3:       #48484A;
+      --gray4:       #3A3A3C;
+      --gray5:       #2C2C2E;
+      --gray6:       #1C1C1E;
+      --text1:       rgba(255,255,255,1.00);
+      --text2:       rgba(235,235,245,0.60);
+      --text3:       rgba(235,235,245,0.30);
+      --sep:         rgba(84,84,88,0.55);
+      --fill1:       rgba(120,120,128,0.36);
+      --fill2:       rgba(120,120,128,0.32);
+      --fill3:       rgba(118,118,128,0.24);
+    }
+
+    /* ── RESET ───────────────────────────────────────────────── */
+    *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
+    html,body {
+      height:100%; overflow:hidden;
+      font-family:-apple-system,'SF Pro Display',BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif;
+      font-size:15px; color:var(--text1); background:var(--bg);
+      -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+    }
+    button  { font-family:inherit; cursor:pointer; border:none; background:none; }
+    ul      { list-style:none; }
+    input,select,textarea { font-family:inherit; }
+    :focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
+
+    /* ── LOADING ─────────────────────────────────────────────── */
+    #loading {
+      position:fixed; inset:0; z-index:999; background:var(--bg);
+      display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+      transition:opacity 0.4s var(--ease-out);
+    }
+    #loading.done { opacity:0; pointer-events:none; }
+    .loading-ring {
+      width:36px; height:36px; border-radius:50%;
+      border:2.5px solid var(--fill1); border-top-color:var(--accent);
+      animation:spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .loading-label { font-size:13px; color:var(--text2); letter-spacing:0.01em; }
+
+    /* ── LAYOUT ──────────────────────────────────────────────── */
+    .app { display:flex; height:100%; }
+
+    /* ── SIDEBAR ─────────────────────────────────────────────── */
+    .sidebar {
+      width:var(--sidebar-w); flex-shrink:0;
+      display:flex; flex-direction:column;
+      background:var(--surf);
+      backdrop-filter:var(--glass); -webkit-backdrop-filter:var(--glass);
+      border-right:0.5px solid var(--sep);
+      transition:width var(--t-slow) var(--ease-std);
+      overflow:hidden; z-index:10;
+    }
+    .sidebar.collapsed { width:0; }
+
+    .sidebar-header {
+      display:flex; align-items:center; gap:10px;
+      padding:14px 14px 12px; border-bottom:0.5px solid var(--sep); flex-shrink:0;
+    }
+    .app-logo { display:flex; align-items:center; gap:9px; }
+    .logo-icon {
+      width:28px; height:28px; border-radius:7px; flex-shrink:0;
+      background:linear-gradient(145deg,#007AFF 0%,#5856D6 100%);
+      display:flex; align-items:center; justify-content:center;
+    }
+    .logo-icon svg { width:14px; height:14px; fill:white; }
+    .logo-text { font-size:15px; font-weight:700; letter-spacing:-0.02em; white-space:nowrap; }
+    .logo-text em { color:var(--accent); font-style:normal; }
+    .sidebar-header .h-spacer { flex:1; }
+
+    /* ── SIDEBAR NAV ─────────────────────────────────────────── */
+    .sidebar-nav {
+      display:flex; gap:2px; padding:8px 10px;
+      border-bottom:0.5px solid var(--sep); flex-shrink:0;
+    }
+    .nav-btn {
+      flex:1; display:flex; flex-direction:column; align-items:center; gap:3px;
+      padding:7px 4px 6px; border-radius:var(--r-sm);
+      font-size:10px; font-weight:600; letter-spacing:0.03em;
+      color:var(--text2); position:relative; white-space:nowrap;
+      transition:all var(--t-fast) var(--ease-out);
+    }
+    .nav-btn svg { width:18px; height:18px; stroke-width:1.7; }
+    .nav-btn:hover  { background:var(--fill3); color:var(--text1); }
+    .nav-btn.active { background:var(--accent-bg); color:var(--accent); }
+    .nav-badge {
+      position:absolute; top:4px; right:6px;
+      min-width:16px; height:16px; padding:0 4px;
+      background:var(--accent); color:#fff;
+      border-radius:100px; font-size:9px; font-weight:700;
+      display:none; align-items:center; justify-content:center;
+    }
+    .nav-badge.show { display:flex; }
+
+    /* ── PANELS ──────────────────────────────────────────────── */
+    .panel { display:none; flex:1; flex-direction:column; overflow:hidden; min-height:0; }
+    .panel.active { display:flex; }
+
+    .panel-toolbar {
+      display:flex; align-items:center; padding:12px 14px 8px; flex-shrink:0;
+    }
+    .panel-title { font-size:13px; font-weight:600; letter-spacing:-0.01em; }
+    .panel-toolbar .h-spacer { flex:1; }
+    .text-btn {
+      font-size:13px; font-weight:500; color:var(--accent);
+      transition:opacity var(--t-fast);
+    }
+    .text-btn:hover   { opacity:0.7; }
+    .text-btn:disabled { color:var(--text3); pointer-events:none; }
+
+    /* ── PROTEINS PANEL ──────────────────────────────────────── */
+    .proteins-scroll { flex:1; overflow-y:auto; padding:0 8px 12px; }
+    .proteins-scroll::-webkit-scrollbar { display:none; }
+
+    /* streaming cursor blink */
+    .c-bubble.streaming { white-space:pre-wrap; word-break:break-word; }
+    .c-bubble.streaming::after {
+      content:'▋'; color:var(--accent); font-size:0.85em;
+      animation:blink 0.65s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    .p-empty {
+      display:flex; flex-direction:column; align-items:center;
+      gap:8px; padding:40px 20px; text-align:center;
+    }
+    .p-empty-icon  { color:var(--text3); }
+    .p-empty-icon svg { width:38px; height:38px; stroke-width:1.3; }
+    .p-empty-title { font-size:14px; font-weight:600; color:var(--text2); }
+    .p-empty-sub   { font-size:12px; color:var(--text3); line-height:1.55; }
+
+    .p-item {
+      display:flex; align-items:center; gap:10px;
+      padding:8px 10px; border-radius:var(--r-sm);
+      animation:itemIn 0.22s var(--ease-spring) both;
+      transition:background var(--t-fast) var(--ease-out);
+    }
+    @keyframes itemIn {
+      from { opacity:0; transform:translateY(-5px) scale(0.97); }
+      to   { opacity:1; transform:none; }
+    }
+    .p-item:hover { background:var(--fill3); }
+    .p-dot  { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+    .p-name {
+      flex:1; font-size:13px; color:var(--text1);
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    }
+    .p-remove {
+      width:18px; height:18px; border-radius:50%; flex-shrink:0;
+      display:flex; align-items:center; justify-content:center;
+      color:var(--text3); opacity:0;
+      transition:opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
+    }
+    .p-item:hover .p-remove { opacity:1; }
+    .p-remove:hover { background:var(--fill1); color:var(--red); }
+    .p-remove svg { width:10px; height:10px; stroke-width:2.5; }
+
+    /* ── CHAT PANEL ──────────────────────────────────────────── */
+    .chat-messages {
+      flex:1; overflow-y:auto; padding:10px 12px 8px;
+      display:flex; flex-direction:column; gap:10px; min-height:0;
+    }
+    .chat-messages::-webkit-scrollbar { display:none; }
+
+    .chat-welcome {
+      display:flex; flex-direction:column; align-items:center;
+      gap:8px; padding:32px 20px; text-align:center;
+    }
+    .chat-welcome-emoji { font-size:34px; line-height:1; }
+    .chat-welcome-title { font-size:14px; font-weight:600; color:var(--text2); }
+    .chat-welcome-sub   { font-size:12px; color:var(--text3); line-height:1.55; }
+
+    .c-msg { display:flex; flex-direction:column; gap:3px; }
+    .c-msg.user { align-items:flex-end; }
+    .c-msg.bot  { align-items:flex-start; }
+    .c-label {
+      font-size:11px; color:var(--text3); font-weight:500;
+      padding:0 14px; letter-spacing:0.01em;
+    }
+    .c-bubble {
+      max-width:88%; padding:10px 14px; border-radius:18px;
+      font-size:14px; line-height:1.55;
+      animation:bubbleIn 0.28s var(--ease-spring) both;
+    }
+    @keyframes bubbleIn {
+      from { opacity:0; transform:scale(0.92) translateY(6px); }
+      to   { opacity:1; transform:none; }
+    }
+    .c-msg.user .c-bubble {
+      background:var(--accent); color:#fff;
+      border-bottom-right-radius:5px;
+    }
+    .c-msg.bot .c-bubble {
+      background:var(--fill2); color:var(--text1);
+      border-bottom-left-radius:5px;
+    }
+    .c-bubble p               { margin:0 0 8px; }
+    .c-bubble p:last-child    { margin:0; }
+    .c-bubble ul,
+    .c-bubble ol              { padding-left:18px; margin:6px 0; }
+    .c-bubble li              { margin:2px 0; }
+    .c-bubble code            {
+      font-family:'SF Mono',Menlo,Monaco,monospace;
+      font-size:12px; background:var(--fill1); padding:1px 5px; border-radius:4px;
+    }
+    .c-bubble strong          { font-weight:600; }
+
+    .typing-indicator {
+      display:flex; gap:4px; padding:12px 14px;
+      background:var(--fill2); border-radius:18px;
+      border-bottom-left-radius:5px; width:fit-content;
+    }
+    .t-dot {
+      width:7px; height:7px; border-radius:50%; background:var(--text3);
+      animation:typeBounce 1.2s ease-in-out infinite;
+    }
+    .t-dot:nth-child(2) { animation-delay:0.15s; }
+    .t-dot:nth-child(3) { animation-delay:0.30s; }
+    @keyframes typeBounce {
+      0%,60%,100% { transform:translateY(0); opacity:0.5; }
+      30%          { transform:translateY(-5px); opacity:1; }
+    }
+
+    .chat-input-area {
+      padding:8px 12px 12px; border-top:0.5px solid var(--sep); flex-shrink:0;
+    }
+    .chat-input-row {
+      display:flex; align-items:flex-end; gap:8px;
+      background:var(--fill3); border-radius:var(--r-lg);
+      padding:8px 8px 8px 13px;
+      border:1px solid transparent;
+      transition:border-color var(--t-fast), background var(--t-fast);
+    }
+    .chat-input-row:focus-within {
+      border-color:var(--accent); background:var(--bg2); outline:none;
+    }
+    #chat-input {
+      flex:1; border:none; background:transparent; outline:none;
+      font-size:14px; color:var(--text1); resize:none;
+      line-height:1.45; min-height:20px; max-height:80px; overflow-y:auto;
+    }
+    #chat-input::placeholder { color:var(--text3); }
+    .send-btn {
+      width:30px; height:30px; border-radius:50%; flex-shrink:0;
+      background:var(--accent); color:#fff;
+      display:flex; align-items:center; justify-content:center;
+      transition:all var(--t-fast) var(--ease-out);
+    }
+    .send-btn:hover:not(:disabled)   { filter:brightness(1.12); transform:scale(1.06); }
+    .send-btn:disabled { background:var(--fill1); color:var(--text3); }
+    .send-btn svg { width:13px; height:13px; }
+    .chat-hint { font-size:11px; color:var(--text3); text-align:center; padding:5px 0 0; }
+
+    /* ── SETTINGS PANEL ──────────────────────────────────────── */
+    .settings-scroll { flex:1; overflow-y:auto; padding:4px 12px 20px; }
+    .settings-scroll::-webkit-scrollbar { display:none; }
+
+    .settings-section { margin-bottom:20px; }
+    .settings-header  {
+      font-size:11px; font-weight:600; color:var(--text3);
+      letter-spacing:0.06em; text-transform:uppercase; padding:0 4px 7px;
+    }
+    .settings-group {
+      background:var(--bg2); border-radius:var(--r-md);
+      border:0.5px solid var(--sep); overflow:hidden;
+    }
+    .settings-row {
+      display:flex; align-items:center; padding:11px 14px; gap:10px;
+      border-bottom:0.5px solid var(--sep);
+    }
+    .settings-row:last-child { border-bottom:none; }
+    .settings-row label { font-size:14px; flex:1; }
+    .s-select {
+      border:none; background:transparent; outline:none;
+      font-size:14px; color:var(--accent);
+      font-family:inherit; cursor:pointer; text-align:right;
+      max-width:160px;
+    }
+    .s-select option { color:var(--text1); background:var(--bg2); }
+
+    .settings-toggle-row {
+      display:flex; align-items:center; padding:11px 14px; gap:10px;
+      border-bottom:0.5px solid var(--sep);
+    }
+    .settings-toggle-row:last-child { border-bottom:none; }
+    .settings-toggle-row label { font-size:14px; flex:1; }
+
+    /* iOS toggle switch */
+    .ios-toggle { position:relative; width:44px; height:26px; flex-shrink:0; }
+    .ios-toggle input {
+      position:absolute; inset:0; opacity:0; cursor:pointer; z-index:1; width:100%; height:100%;
+    }
+    .ios-track {
+      position:absolute; inset:0; border-radius:13px;
+      background:var(--fill1); transition:background 0.22s;
+      pointer-events:none;
+    }
+    .ios-toggle input:checked ~ .ios-track { background:var(--green); }
+    .ios-thumb {
+      position:absolute; top:3px; left:3px;
+      width:20px; height:20px; border-radius:50%;
+      background:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.30);
+      transition:transform 0.22s var(--ease-spring);
+      pointer-events:none;
+    }
+    .ios-toggle input:checked ~ .ios-thumb { transform:translateX(18px); }
+
+    .update-btn {
+      width:100%; padding:12px; margin-top:16px;
+      background:var(--accent); color:#fff;
+      border-radius:var(--r-md); font-size:15px; font-weight:600;
+      transition:all var(--t-fast) var(--ease-out);
+    }
+    .update-btn:hover  { filter:brightness(1.08); transform:translateY(-1px); }
+    .update-btn:active { transform:translateY(0); filter:brightness(0.95); }
+
+    /* ── MAIN AREA ───────────────────────────────────────────── */
+    .main { flex:1; display:flex; flex-direction:column; min-width:0; position:relative; overflow:hidden; }
+
+    /* toolbar */
+    .plot-toolbar {
+      display:flex; align-items:center; gap:8px; padding:9px 12px;
+      background:var(--surf);
+      backdrop-filter:var(--glass); -webkit-backdrop-filter:var(--glass);
+      border-bottom:0.5px solid var(--sep); flex-shrink:0; z-index:5;
+    }
+
+    .sidebar-toggle-btn {
+      width:32px; height:32px; border-radius:var(--r-sm); flex-shrink:0;
+      display:flex; align-items:center; justify-content:center; color:var(--text2);
+      transition:all var(--t-fast) var(--ease-out);
+    }
+    .sidebar-toggle-btn:hover { background:var(--fill2); color:var(--text1); }
+    .sidebar-toggle-btn svg   { width:16px; height:16px; stroke-width:1.8; }
+
+    /* segmented control */
+    .seg-ctrl {
+      display:flex; background:var(--fill1); border-radius:var(--r-sm);
+      padding:2px; gap:2px;
+    }
+    .seg-btn {
+      display:flex; align-items:center; gap:5px;
+      padding:5px 11px; border-radius:6px;
+      font-size:13px; font-weight:500; color:var(--text2);
+      transition:all var(--t-fast) var(--ease-out); white-space:nowrap;
+    }
+    .seg-btn svg { width:13px; height:13px; stroke-width:1.8; flex-shrink:0; }
+    .seg-btn.active {
+      background:var(--bg2); color:var(--text1);
+      box-shadow:0 1px 3px rgba(0,0,0,0.10),0 0 0 0.5px rgba(0,0,0,0.06);
+    }
+    [data-theme="dark"] .seg-btn.active {
+      box-shadow:0 1px 4px rgba(0,0,0,0.40),0 0 0 0.5px rgba(255,255,255,0.07);
+    }
+    .seg-btn:not(.active):hover { background:var(--fill2); color:var(--text1); }
+
+    .tb-spacer { flex:1; }
+
+    .info-pill {
+      display:flex; align-items:center; gap:6px;
+      padding:5px 11px; background:var(--fill3); border-radius:100px;
+      font-size:12px; font-weight:500; color:var(--text2); flex-shrink:0;
+    }
+    .live-dot {
+      width:6px; height:6px; border-radius:50%; background:var(--green); flex-shrink:0;
+      animation:livePulse 2s ease-in-out infinite;
+    }
+    @keyframes livePulse { 0%,100%{opacity:1;} 50%{opacity:0.35;} }
+
+    .toolbar-btn {
+      width:32px; height:32px; border-radius:var(--r-sm); flex-shrink:0;
+      display:flex; align-items:center; justify-content:center; color:var(--text2);
+      transition:all var(--t-fast) var(--ease-out);
+    }
+    .toolbar-btn:hover { background:var(--fill2); color:var(--text1); }
+    .toolbar-btn svg   { width:15px; height:15px; stroke-width:1.8; }
+
+    /* plot area */
+    .plot-area { flex:1; position:relative; min-height:0; background:var(--bg); }
+    #graph      { width:100%; height:100%; }
+
+    /* floating selection action bar */
+    .sel-bar {
+      position:absolute; bottom:24px; left:50%;
+      transform:translateX(-50%) translateY(72px);
+      opacity:0; pointer-events:none; z-index:20;
+      transition:transform 0.32s var(--ease-spring), opacity 0.18s var(--ease-out);
+    }
+    .sel-bar.visible { transform:translateX(-50%) translateY(0); opacity:1; pointer-events:all; }
+    .sel-bar-inner {
+      display:flex; align-items:center; gap:6px;
+      padding:9px 12px 9px 16px;
+      background:var(--bg2);
+      border-radius:var(--r-xl);
+      box-shadow:0 4px 24px rgba(0,0,0,0.12),0 0 0 0.5px var(--sep);
+      white-space:nowrap;
+    }
+    [data-theme="dark"] .sel-bar-inner {
+      box-shadow:0 4px 24px rgba(0,0,0,0.55),0 0 0 0.5px var(--sep);
+    }
+    .sel-label { font-size:13px; font-weight:600; }
+    .sel-label em { color:var(--accent); font-style:normal; }
+    .sel-divider { width:0.5px; height:18px; background:var(--sep); margin:0 2px; }
+    .sel-action {
+      display:flex; align-items:center; gap:5px;
+      padding:6px 12px; border-radius:100px;
+      font-size:13px; font-weight:500;
+      transition:all var(--t-fast) var(--ease-out);
+    }
+    .sel-action svg { width:12px; height:12px; stroke-width:2; }
+    .sel-action.primary { background:var(--accent); color:#fff; }
+    .sel-action.primary:hover { filter:brightness(1.1); }
+    .sel-action.ghost  { color:var(--text2); }
+    .sel-action.ghost:hover { background:var(--fill2); color:var(--text1); }
+
+    /* zoom reset button */
+    .zoom-btn {
+      position:absolute; right:14px; bottom:24px; z-index:10;
+      width:32px; height:32px; border-radius:var(--r-sm);
+      display:flex; align-items:center; justify-content:center;
+      background:var(--bg2); color:var(--text2);
+      box-shadow:0 1px 5px rgba(0,0,0,0.12),0 0 0 0.5px var(--sep);
+      transition:all var(--t-fast) var(--ease-out);
+    }
+    .zoom-btn:hover { color:var(--text1); box-shadow:0 2px 10px rgba(0,0,0,0.16),0 0 0 0.5px var(--sep); }
+    .zoom-btn svg { width:14px; height:14px; stroke-width:2; }
+
+    /* ── SIDEBAR RESIZER ─────────────────────────────────────── */
+    .sidebar-resizer {
+      width:4px; flex-shrink:0; cursor:col-resize; z-index:11;
+      background:transparent; position:relative;
+      transition:background var(--t-fast);
+    }
+    .sidebar-resizer::after {
+      content:''; position:absolute; inset:0 -3px;
+    }
+    .sidebar-resizer:hover, .sidebar-resizer.dragging {
+      background:var(--accent);
+    }
+    .sidebar.collapsed ~ .sidebar-resizer { display:none; }
+    .sidebar.is-resizing { transition:none !important; }
+
+    /* ── MOBILE OVERLAY ──────────────────────────────────────── */
+    .mobile-overlay {
+      display:block; position:fixed; inset:0; z-index:99;
+      background:rgba(0,0,0,0.45);
+      backdrop-filter:blur(3px); -webkit-backdrop-filter:blur(3px);
+      opacity:0; pointer-events:none;
+      transition:opacity var(--t-std) var(--ease-out);
+    }
+    .mobile-overlay.show { opacity:1; pointer-events:all; }
+
+    /* ── RESPONSIVE ──────────────────────────────────────────── */
+    @media (max-width:1100px) {
+      :root { --sidebar-w: 270px; }
+    }
+    @media (max-width:900px) {
+      :root { --sidebar-w: 240px; }
+    }
+    @media (max-width:700px) {
+      .sidebar {
+        position:fixed; top:0; left:0; height:100%;
+        width:var(--sidebar-w) !important;
+        transform:translateX(0);
+        transition:transform var(--t-slow) var(--ease-std) !important;
+        z-index:100;
       }
-    </style>
+      .sidebar.collapsed {
+        width:var(--sidebar-w) !important;
+        transform:translateX(-100%);
+      }
+      .sidebar-resizer { display:none !important; }
+      .main { width:100%; }
+    }
+    @media (max-width:480px) {
+      :root { --sidebar-w: calc(100vw - 40px); }
+      .plot-toolbar { padding:8px 10px; gap:6px; }
+      .sel-bar { left:10px; right:10px; transform:none; bottom:16px; }
+    }
+  </style>
 </head>
 <body>
 
-    <!-- Header with Title and Dark Mode Toggle -->
-    <div id="header">
-        <center><h1>ChatPLVis</h1></center>
-        <button id="dark-mode-toggle">Dark Mode</button>
+<!-- LOADING -->
+<div id="loading">
+  <div class="loading-ring"></div>
+  <span class="loading-label">Loading proteome data…</span>
+</div>
+
+<div class="app">
+
+  <!-- ── SIDEBAR ─────────────────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+
+    <div class="sidebar-header">
+      <div class="app-logo">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 3C8.5 3 5 5.5 5 9c0 2.5 1.5 4.5 3.5 5.5L7 21h10l-1.5-6.5C17.5 13.5 19 11.5 19 9c0-3.5-3.5-6-7-6z"/></svg>
+        </div>
+        <span class="logo-text">Chat<em>PL</em>Vis</span>
+      </div>
+      <div class="h-spacer"></div>
     </div>
 
-    <!-- Modal for flashed messages (if used) -->
-    <div id="flash-modal" class="modal">
-      <div class="modal-content">
-        <span class="close">&times;</span>
-        <div id="modal-messages"></div>
+    <nav class="sidebar-nav">
+      <button class="nav-btn active" data-panel="proteins">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <circle cx="12" cy="8" r="4"/><path d="M6 20v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/>
+        </svg>
+        Proteins
+        <span class="nav-badge" id="p-badge"></span>
+      </button>
+      <button class="nav-btn" data-panel="chat">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        Chat
+      </button>
+      <button class="nav-btn" data-panel="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M12 1v3M12 20v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M1 12h3M20 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>
+        </svg>
+        Settings
+      </button>
+    </nav>
+
+    <!-- PROTEINS -->
+    <div class="panel active" id="panel-proteins">
+      <div class="panel-toolbar">
+        <span class="panel-title">Selected Proteins</span>
+        <div class="h-spacer"></div>
+        <button class="text-btn" id="clear-all" disabled>Clear All</button>
+      </div>
+      <div class="proteins-scroll">
+        <div class="p-empty" id="p-empty">
+          <div class="p-empty-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+          </div>
+          <div class="p-empty-title">No proteins selected</div>
+          <div class="p-empty-sub">Click nodes on the plot, or use<br><strong>Box Select</strong> to select a region</div>
+        </div>
+        <ul id="proteins-list"></ul>
       </div>
     </div>
 
-    <!-- Loading Screen -->
-    <div id="loading-screen">
-        <div id="loading-content">
-            <div class="spinner"></div>
-            <p>Loading Graph... Please wait.</p>
+    <!-- CHAT -->
+    <div class="panel" id="panel-chat">
+      <div class="chat-messages" id="chat-messages">
+        <div class="chat-welcome">
+          <div class="chat-welcome-emoji">🧬</div>
+          <div class="chat-welcome-title">PLVis AI</div>
+          <div class="chat-welcome-sub">Select proteins on the scatter plot, then ask about their functions, interactions, or biological significance.</div>
         </div>
+      </div>
+      <div class="chat-input-area">
+        <div class="chat-input-row">
+          <textarea id="chat-input" placeholder="Ask about selected proteins…" rows="1"></textarea>
+          <button class="send-btn" id="chat-send">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          </button>
+        </div>
+        <div class="chat-hint">Return to send · Shift+Return for new line</div>
+      </div>
     </div>
 
-    <div id="main-container">
-        <!-- Left Panel -->
-        <div id="left-panel">
-            <!-- 1. Selected Proteins List -->
-            <div id="selected-nodes-list">
-                <h3 style="display: flex; justify-content: space-between; align-items: center;">
-                    Selected Proteins: 
-                    <button id="clear-all-button" 
-                            style="margin-top: 10px; padding: 5px 10px; background: #dc3545; border: none; color: #fff; 
-                                   cursor: pointer; border-radius: 5px; font-size: 0.9em;">
-                        Clear All
-                    </button>
-                </h3>
-                <div id="selected-proteins-container">
-                    <ul id="selected-proteins"></ul>
-                </div>
-            </div>
-            
-            <!-- 2. Chatbot -->
-            <div id="chatbot" style="margin-top: 10px;">
-                <h3>Chatbot</h3>
-                <label class="toggle-container">
-                    <input type="checkbox" id="include-similar">
-                    <span class="slider"></span> Include Top 5 Similar Proteins
-                </label>
-                <div id="chatbot-messages"></div>
-                <div id="chatbot-input-container">
-                    <input type="text" id="chatbot-input" placeholder="Type your message here...">
-                    <button id="chatbot-send">Send</button>
-                </div>
-            </div>
+    <!-- SETTINGS -->
+    <div class="panel" id="panel-settings">
+      <div class="panel-toolbar">
+        <span class="panel-title">Plot Settings</span>
+      </div>
+      <form method="POST" action="/" class="settings-scroll">
 
-            <!-- 3. Plot Settings -->
-            <div id="controls" style="margin-top: 10px;">
-                <h3>Plot Settings</h3>
-                <form method="POST" id="controls-form">
-                    <!-- Select Column and Comparison -->
-                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-                        <div>
-                            <label for="sel_col">Select Column:</label>
-                            <select name="sel_col" id="sel_col">
-                                {% for option in column_options %}
-                                    <option value="{{ option }}" {% if option == sel_col %}selected{% endif %}>{{ option }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-            
-                        <div>
-                            <label for="sel_comp">Select Comparison:</label>
-                            <select name="sel_comp" id="sel_comp">
-                                {% for option in comparison_options %}
-                                    <option value="{{ option }}" {% if option == sel_comp %}selected{% endif %}>{{ option }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                    </div>
-            
-                    <!-- Plot Type, Info Source, and Button -->
-                    <div style="display: flex; align-items: center; gap: 10px; ">
-                        <div>
-                            <label for="plot_type">Plot Type:</label>
-                            <select name="plot_type" id="plot_type">
-                                {% for p_option in plot_options %}
-                                    <option value="{{ p_option }}" {% if p_option == plot_type %}selected{% endif %}>{{ p_option }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-            
-                        <div>
-                            <label for="info_source">Info Source:</label>
-                            <select name="info_source" id="info_source">
-                                {% for i_option in info_options %}
-                                    <option value="{{ i_option }}" {% if i_option == info_source %}selected{% endif %}>{{ i_option }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-            
-                        <div>
-                            <button type="submit" style="margin-top: 30px;">Update Plot</button>
-                        </div>
-                    </div>
-                </form>
+        <div class="settings-section">
+          <div class="settings-header">Data</div>
+          <div class="settings-group">
+            <div class="settings-row">
+              <label for="sel_col">Column</label>
+              <select name="sel_col" id="sel_col" class="s-select">
+                {% for option in column_options %}
+                <option value="{{ option }}" {% if option == sel_col %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+              </select>
             </div>
+            <div class="settings-row">
+              <label for="sel_comp">Comparison</label>
+              <select name="sel_comp" id="sel_comp" class="s-select">
+                {% for c_option in comparison_options %}
+                <option value="{{ c_option }}" {% if c_option == sel_comp %}selected{% endif %}>{{ c_option }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
         </div>
 
-        <!-- Graph Container -->
-        <div id="graph"></div>
+        <div class="settings-section">
+          <div class="settings-header">Visualization</div>
+          <div class="settings-group">
+            <div class="settings-row">
+              <label for="plot_type_sel">Plot Type</label>
+              <select name="plot_type" id="plot_type_sel" class="s-select">
+                {% for p_option in plot_options %}
+                <option value="{{ p_option }}" {% if p_option == plot_type %}selected{% endif %}>{{ p_option }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="settings-row">
+              <label for="info_source">Info Source</label>
+              <select name="info_source" id="info_source" class="s-select">
+                {% for i_option in info_options %}
+                <option value="{{ i_option }}" {% if i_option == info_source %}selected{% endif %}>{{ i_option }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="settings-header">Options</div>
+          <div class="settings-group">
+            <div class="settings-toggle-row">
+              <label for="include-similar">Include similar proteins in RAG</label>
+              <label class="ios-toggle">
+                <input type="checkbox" id="include-similar" checked>
+                <span class="ios-track"></span>
+                <span class="ios-thumb"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" class="update-btn">Update Plot</button>
+      </form>
     </div>
 
-    <script>
-        // Show loading screen immediately
-        document.getElementById('loading-screen').style.display = 'flex';
+  </aside>
 
-        // If you use flashed messages, handle them here:
-        var flashedMessages = [];  // If using get_flashed_messages, pass them in
-        if (flashedMessages.length > 0) {
-            let content = '';
-            flashedMessages.forEach(function(item) {
-                const category = item[0];
-                const message = item[1];
-                let categoryClass = category + "-message";
-                content += `<div class="${categoryClass}">${message}</div>`;
-            });
+  <!-- ── SIDEBAR RESIZER ──────────────────────────────────────── -->
+  <div class="sidebar-resizer" id="sidebar-resizer"></div>
 
-            const flashModal = document.getElementById('flash-modal');
-            document.getElementById('modal-messages').innerHTML = content;
-            flashModal.style.display = 'block';
+  <!-- ── MOBILE OVERLAY ───────────────────────────────────────── -->
+  <div class="mobile-overlay" id="mobile-overlay"></div>
 
-            const closeBtn = flashModal.querySelector('.close');
-            closeBtn.onclick = function() {
-                flashModal.style.display = 'none';
-            };
-            window.onclick = function(event) {
-                if (event.target == flashModal) {
-                    flashModal.style.display = 'none';
-                }
-            };
+  <!-- ── MAIN ────────────────────────────────────────────────── -->
+  <main class="main">
+
+    <div class="plot-toolbar">
+      <button class="sidebar-toggle-btn" id="sidebar-toggle" title="Toggle sidebar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <path d="M9 3v18"/>
+        </svg>
+      </button>
+
+      <div class="seg-ctrl" id="mode-ctrl">
+        <button class="seg-btn active" data-mode="pan">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M12 3v18M3 12h18" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Pan
+        </button>
+        <button class="seg-btn" data-mode="select">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="4 2.5"/>
+          </svg>
+          Box Select
+        </button>
+        <button class="seg-btn" data-mode="lasso">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <path d="M12 5C7 5 4 8 4 11c0 3 3 5 8 5s8-2 8-5" stroke-dasharray="4 2.5" stroke-linecap="round"/>
+            <path d="M12 16v4M10 20h4" stroke-linecap="round"/>
+          </svg>
+          Lasso
+        </button>
+      </div>
+
+      <div class="tb-spacer"></div>
+
+      <div class="info-pill">
+        <span class="live-dot"></span>
+        <span id="node-count">—</span> proteins
+      </div>
+
+      <button class="toolbar-btn" id="zoom-reset" title="Reset view">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" stroke-linecap="round"/>
+          <path d="M3 3v5h5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+
+      <button class="toolbar-btn" id="theme-btn" title="Toggle theme">
+        <svg id="ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <svg id="ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="display:none">
+          <circle cx="12" cy="12" r="5"/>
+          <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+          <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="plot-area">
+      <div id="graph"></div>
+
+      <!-- floating selection bar -->
+      <div class="sel-bar" id="sel-bar">
+        <div class="sel-bar-inner">
+          <span class="sel-label"><em id="sel-count">0</em> selected</span>
+          <div class="sel-divider"></div>
+          <button class="sel-action primary" id="btn-chat-sel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+            Chat
+          </button>
+          <button class="sel-action ghost" id="btn-clear-sel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <button class="zoom-btn" id="zoom-reset2" title="Reset view">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" stroke-linecap="round"/>
+          <path d="M3 3v5h5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+
+  </main>
+</div>
+
+<script>
+// ── FLASK DATA ───────────────────────────────────────────────
+const PLOT_TYPE = {{ plot_type | tojson }};
+const NODES     = {{ nodes | tojson }};
+
+// ── THEME ────────────────────────────────────────────────────
+const htmlEl   = document.documentElement;
+const icoMoon  = document.getElementById('ico-moon');
+const icoSun   = document.getElementById('ico-sun');
+let theme = localStorage.getItem('chatplvis-theme')
+  || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+
+function applyTheme(t) {
+  theme = t;
+  htmlEl.setAttribute('data-theme', t);
+  localStorage.setItem('chatplvis-theme', t);
+  icoMoon.style.display = t === 'dark'  ? 'block' : 'none';
+  icoSun.style.display  = t === 'light' ? 'block' : 'none';
+  if (window._plotReady) rerenderPlotColors();
+}
+document.getElementById('theme-btn').addEventListener('click', () => applyTheme(theme === 'dark' ? 'light' : 'dark'));
+applyTheme(theme);
+
+// ── SIDEBAR ──────────────────────────────────────────────────
+const sidebar = document.getElementById('sidebar');
+
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.panel).classList.add('active');
+    if (sidebar.classList.contains('collapsed')) sidebar.classList.remove('collapsed');
+  });
+});
+
+const mobileOverlay = document.getElementById('mobile-overlay');
+const isMobile = () => window.innerWidth <= 700;
+
+document.getElementById('sidebar-toggle').addEventListener('click', () => {
+  const wasCollapsed = sidebar.classList.contains('collapsed');
+  sidebar.classList.toggle('collapsed');
+  if (isMobile()) {
+    if (wasCollapsed) {
+      mobileOverlay.classList.add('show');
+    } else {
+      mobileOverlay.classList.remove('show');
+    }
+  } else {
+    setTimeout(() => Plotly.relayout('graph', {}), 360);
+  }
+});
+
+mobileOverlay.addEventListener('click', () => {
+  sidebar.classList.add('collapsed');
+  mobileOverlay.classList.remove('show');
+});
+
+// Show/hide mobile overlay in sync with sidebar visibility
+document.querySelectorAll('.nav-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    // First handler already removed 'collapsed'; sidebar is now visible
+    if (isMobile()) mobileOverlay.classList.add('show');
+  });
+});
+
+// ── SIDEBAR RESIZE ────────────────────────────────────────────
+(function() {
+  const resizer = document.getElementById('sidebar-resizer');
+  const MIN_W = 200, MAX_W = 520;
+  let startX = 0, startW = 0;
+
+  resizer.addEventListener('mousedown', e => {
+    startX = e.clientX;
+    startW = sidebar.getBoundingClientRect().width;
+    sidebar.classList.add('is-resizing');
+    resizer.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!sidebar.classList.contains('is-resizing')) return;
+    const newW = Math.min(MAX_W, Math.max(MIN_W, startW + (e.clientX - startX)));
+    document.documentElement.style.setProperty('--sidebar-w', newW + 'px');
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!sidebar.classList.contains('is-resizing')) return;
+    sidebar.classList.remove('is-resizing');
+    resizer.classList.remove('dragging');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    setTimeout(() => Plotly.relayout('graph', {}), 50);
+  });
+})();
+
+// ── STATE ────────────────────────────────────────────────────
+let selectedIds = [];
+let dragMode    = 'pan';
+const graphDiv  = document.getElementById('graph');
+const is3D      = PLOT_TYPE.startsWith('3D');
+
+document.getElementById('node-count').textContent = NODES.length.toLocaleString();
+
+// ── DRAG MODE ────────────────────────────────────────────────
+document.querySelectorAll('.seg-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    dragMode = btn.dataset.mode;
+    if (!is3D && window._plotReady) Plotly.relayout(graphDiv, { dragmode: dragMode });
+  });
+});
+
+// ── PLOT COLORS ──────────────────────────────────────────────
+function plotBg() {
+  return 'rgba(0,0,0,0)';
+}
+function hoverlabelStyle() {
+  const dark = theme === 'dark';
+  return {
+    bgcolor:     dark ? '#1C1C1E' : '#FFFFFF',
+    bordercolor: dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+    font: { family: '-apple-system,BlinkMacSystemFont,sans-serif', size: 12,
+            color: dark ? '#FFFFFF' : '#000000' },
+    align: 'left', namelength: 0,
+  };
+}
+
+// ── PLOTLY INIT ──────────────────────────────────────────────
+let plotData, plotLayout;
+
+if (is3D) {
+  plotData = [{
+    x: NODES.map(n => n.x), y: NODES.map(n => n.y), z: NODES.map(n => n.z || 0),
+    mode: 'markers', type: 'scatter3d',
+    marker: {
+      size: 3.5, color: NODES.map(n => n.color), opacity: 0.85,
+      line: { color: 'rgba(255,255,255,0.05)', width: 0 },
+    },
+    text: NODES.map(n => n.label), customdata: NODES.map(n => n.id),
+    hovertemplate: '%{text}<extra></extra>',
+    hoverinfo: 'text', hoverlabel: hoverlabelStyle(),
+  }];
+  plotLayout = {
+    scene: {
+      xaxis: { visible: false, showgrid: false, zeroline: false },
+      yaxis: { visible: false, showgrid: false, zeroline: false },
+      zaxis: { visible: false, showgrid: false, zeroline: false },
+      bgcolor: plotBg(), camera: { eye: { x: 1.4, y: 1.4, z: 1.4 } },
+    },
+    paper_bgcolor: plotBg(), margin: { l: 0, r: 0, b: 0, t: 0 },
+    showlegend: false, uirevision: 'lock',
+  };
+} else {
+  plotData = [{
+    x: NODES.map(n => n.x), y: NODES.map(n => n.y),
+    mode: 'markers', type: 'scattergl',   // WebGL — smooth at 50k+ points
+    marker: {
+      size:    NODES.map(n => n.size),
+      color:   NODES.map(n => n.color),
+      opacity: 0.80,
+      line:    { color: 'rgba(255,255,255,0.08)', width: 0.5 },
+    },
+    text: NODES.map(n => n.label), customdata: NODES.map(n => n.id),
+    hovertemplate: '%{text}<extra></extra>',
+    hoverinfo: 'text', hoverlabel: hoverlabelStyle(),
+  }];
+  plotLayout = {
+    dragmode: 'pan',
+    xaxis: { visible: false, showgrid: false, zeroline: false, fixedrange: false },
+    yaxis: { visible: false, showgrid: false, zeroline: false, fixedrange: false },
+    paper_bgcolor: plotBg(), plot_bgcolor: plotBg(),
+    margin: { l: 0, r: 0, b: 0, t: 0 },
+    showlegend: false, uirevision: 'lock',
+  };
+}
+
+const plotConfig = {
+  displayModeBar: false, scrollZoom: true,
+  responsive: true,     doubleClick: 'reset',
+};
+
+Plotly.newPlot(graphDiv, plotData, plotLayout, plotConfig).then(() => {
+  window._plotReady = true;
+  document.getElementById('loading').classList.add('done');
+});
+
+function rerenderPlotColors() {
+  const bg = plotBg();
+  const hl = hoverlabelStyle();
+  if (is3D) {
+    Plotly.relayout(graphDiv, { 'scene.bgcolor': bg, paper_bgcolor: bg });
+  } else {
+    Plotly.relayout(graphDiv, { paper_bgcolor: bg, plot_bgcolor: bg });
+  }
+  Plotly.restyle(graphDiv, { hoverlabel: [hl] }, [0]);
+}
+
+// ── SELECTION RENDERING ──────────────────────────────────────
+const ACCENT_COLOR = () => theme === 'dark' ? '#0A84FF' : '#007AFF';
+
+function applySelectionRestyle() {
+  if (is3D) return;
+  const sel = new Set(selectedIds);
+  if (sel.size > 0) {
+    Plotly.restyle(graphDiv, {
+      'marker.color':   [NODES.map(n => sel.has(n.id) ? ACCENT_COLOR() : n.color)],
+      'marker.size':    [NODES.map(n => sel.has(n.id) ? n.size + 4 : Math.max(n.size * 0.55, 2))],
+      'marker.opacity': [NODES.map(n => sel.has(n.id) ? 1.0 : 0.16)],
+    }, [0]);
+  } else {
+    Plotly.restyle(graphDiv, {
+      'marker.color':   [NODES.map(n => n.color)],
+      'marker.size':    [NODES.map(n => n.size)],
+      'marker.opacity': [NODES.map(() => 0.80)],
+    }, [0]);
+  }
+}
+
+function refreshSelection() {
+  const count = selectedIds.length;
+
+  // counts
+  document.getElementById('sel-count').textContent = count;
+  const badge = document.getElementById('p-badge');
+  if (count > 0) { badge.textContent = count; badge.classList.add('show'); }
+  else           { badge.textContent = '';    badge.classList.remove('show'); }
+
+  // floating bar
+  document.getElementById('sel-bar').classList.toggle('visible', count > 0);
+
+  // buttons
+  document.getElementById('clear-all').disabled = count === 0;
+
+  applySelectionRestyle();
+  renderProteinList();
+}
+
+// ── PLOTLY EVENTS ────────────────────────────────────────────
+// Single-click: toggle one protein (only in pan mode)
+graphDiv.on('plotly_click', data => {
+  if (dragMode !== 'pan' || !data?.points.length) return;
+  const id = data.points[0].customdata;
+  selectedIds = selectedIds.includes(id)
+    ? selectedIds.filter(x => x !== id)
+    : [...selectedIds, id];
+  refreshSelection();
+});
+
+// Box / lasso selection — Shift+drag EXTENDS automatically in Plotly
+graphDiv.on('plotly_selected', eventData => {
+  if (!eventData?.points?.length) return;
+  selectedIds = eventData.points.map(p => p.customdata);
+  refreshSelection();
+  // auto-switch sidebar to proteins panel
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('[data-panel="proteins"]').classList.add('active');
+  document.getElementById('panel-proteins').classList.add('active');
+  if (sidebar.classList.contains('collapsed')) sidebar.classList.remove('collapsed');
+});
+
+// Click empty area in box/lasso mode clears selection
+graphDiv.on('plotly_deselect', () => {
+  selectedIds = [];
+  refreshSelection();
+});
+
+// ── PROTEIN LIST ─────────────────────────────────────────────
+const proteinsList = document.getElementById('proteins-list');
+const pEmpty       = document.getElementById('p-empty');
+
+function renderProteinList() {
+  proteinsList.querySelectorAll('.p-item').forEach(el => el.remove());
+  pEmpty.style.display = selectedIds.length ? 'none' : '';
+
+  selectedIds.forEach(id => {
+    const node = NODES.find(n => n.id === id);
+    if (!node) return;
+
+    const li   = document.createElement('li');   li.className = 'p-item';
+    const dot  = document.createElement('div');  dot.className = 'p-dot';
+    dot.style.background = node.color;
+    const name = document.createElement('span'); name.className = 'p-name';
+    name.textContent = node.protein_name;
+    const btn  = document.createElement('button'); btn.className = 'p-remove';
+    btn.setAttribute('aria-label', 'Remove');
+    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+    btn.addEventListener('click', () => {
+      selectedIds = selectedIds.filter(x => x !== id);
+      refreshSelection();
+    });
+
+    li.append(dot, name, btn);
+    proteinsList.appendChild(li);
+  });
+}
+
+document.getElementById('clear-all').addEventListener('click', () => {
+  selectedIds = []; refreshSelection();
+});
+
+// ── SELECTION BAR ACTIONS ────────────────────────────────────
+document.getElementById('btn-chat-sel').addEventListener('click', () => {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('[data-panel="chat"]').classList.add('active');
+  document.getElementById('panel-chat').classList.add('active');
+  if (sidebar.classList.contains('collapsed')) sidebar.classList.remove('collapsed');
+  setTimeout(() => document.getElementById('chat-input').focus(), 80);
+});
+
+document.getElementById('btn-clear-sel').addEventListener('click', () => {
+  selectedIds = []; refreshSelection();
+});
+
+// ── ZOOM RESET ───────────────────────────────────────────────
+function resetView() {
+  if (is3D) {
+    Plotly.relayout(graphDiv, { 'scene.camera': { eye: { x: 1.4, y: 1.4, z: 1.4 } } });
+  } else {
+    Plotly.relayout(graphDiv, { 'xaxis.autorange': true, 'yaxis.autorange': true });
+  }
+}
+document.getElementById('zoom-reset').addEventListener('click', resetView);
+document.getElementById('zoom-reset2').addEventListener('click', resetView);
+
+// ── CHAT ─────────────────────────────────────────────────────
+const chatMessages = document.getElementById('chat-messages');
+const chatInput    = document.getElementById('chat-input');
+const chatSend     = document.getElementById('chat-send');
+
+chatInput.addEventListener('input', () => {
+  chatInput.style.height = 'auto';
+  chatInput.style.height = Math.min(chatInput.scrollHeight, 80) + 'px';
+});
+
+chatInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
+});
+chatSend.addEventListener('click', sendChat);
+
+function appendMsg(role, content) {
+  const wrap = document.createElement('div'); wrap.className = 'c-msg ' + role;
+  const lbl  = document.createElement('div'); lbl.className = 'c-label';
+  lbl.textContent = role === 'user' ? 'You' : 'PLVis AI';
+  const bub  = document.createElement('div'); bub.className = 'c-bubble';
+  if (role === 'user') bub.textContent = content;   // XSS-safe
+  else                 bub.innerHTML   = content;   // server-sanitized
+  wrap.append(lbl, bub);
+  chatMessages.appendChild(wrap);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function showTyping() {
+  const wrap = document.createElement('div');
+  wrap.id = 'typing-wrap'; wrap.className = 'c-msg bot';
+  const lbl = document.createElement('div'); lbl.className = 'c-label'; lbl.textContent = 'PLVis AI';
+  const ind = document.createElement('div'); ind.className = 'typing-indicator';
+  ind.innerHTML = '<div class="t-dot"></div><div class="t-dot"></div><div class="t-dot"></div>';
+  wrap.append(lbl, ind);
+  chatMessages.appendChild(wrap);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+function removeTyping() { document.getElementById('typing-wrap')?.remove(); }
+
+// Configure marked for safe rendering
+marked.use({ breaks: true, gfm: true });
+
+async function sendChat() {
+  const msg = chatInput.value.trim();
+  if (!msg) return;
+
+  appendMsg('user', msg);
+  chatInput.value = ''; chatInput.style.height = 'auto';
+  chatSend.disabled = true;
+  showTyping();   // visible while server does retrieval (~0.2 s with warm cache)
+
+  let botBubble = null;
+  let rawText = '';
+
+  try {
+    const resp = await fetch('/chatbot/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        node_ids:        selectedIds,
+        message:         msg,
+        include_similar: document.getElementById('include-similar').checked,
+        info_source:     document.getElementById('info_source').value,
+      }),
+    });
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    removeTyping();
+    botBubble = _createStreamBubble();   // replace typing indicator with stream bubble
+
+    const reader  = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let sseBuffer = '';
+
+    outer: while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      sseBuffer += decoder.decode(value, { stream: true });
+      const events = sseBuffer.split('\n\n');
+      sseBuffer = events.pop() ?? '';        // keep incomplete last chunk
+
+      for (const event of events) {
+        if (!event.startsWith('data: ')) continue;
+        const payload = event.slice(6).trim();
+
+        if (payload === '[DONE]') break outer;
+
+        let obj;
+        try { obj = JSON.parse(payload); } catch { continue; }
+
+        if (obj.e) {
+          botBubble.classList.remove('streaming');
+          botBubble.textContent = `Error: ${obj.e}`;
+          break outer;
         }
-
-        const plotType = "{{ plot_type }}";
-        const nodes = {{ nodes|tojson }};
-        const edges = {{ edges|tojson }};
-
-        var selectedNodeIds = [];
-        var graphDiv = document.getElementById('graph');
-        var selectedProteinsList = document.getElementById('selected-proteins');
-        var clearAllButton = document.getElementById('clear-all-button');
-
-        let data, layout;
-
-        // Depending on 2D vs 3D
-        if (plotType.startsWith("3D")) {
-            // 3D scatter
-            const nodeX = nodes.map(node => node.x);
-            const nodeY = nodes.map(node => node.y);
-            const nodeZ = nodes.map(node => node.z);
-            const labels = nodes.map(node => node.label);
-            const ids = nodes.map(node => node.id);
-            const sizes = nodes.map(node => node.size);
-            const nodeColors = nodes.map(node => node.color);
-
-            data = [
-                {
-                    x: nodeX,
-                    y: nodeY,
-                    z: nodeZ,
-                    mode: 'markers',
-                    type: 'scatter3d',
-                    marker: {
-                        size: sizes,
-                        color: nodeColors,
-                        opacity: 0.9,
-                        line: {
-                            color: '#FFFFFF',
-                            width: 0.5
-                        },
-                    },
-                    text: labels,
-                    customdata: ids,
-                    hoverinfo: 'text',
-                    hoverlabel: {
-                        bgcolor: '#FFFFFF',
-                        font: {color: '#000000'},
-                    }
-                }
-            ];
-
-            layout = {
-                scene: {
-                    xaxis: {visible: false},
-                    yaxis: {visible: false},
-                    zaxis: {visible: false},
-                    bgcolor: '#ffffff',
-                    camera: {
-                        eye: {x: 1.5, y: 1.5, z: 1.5}
-                    },
-                },
-                paper_bgcolor: '#ffffff',
-                margin: { l: 0, r: 0, b: 0, t: 0 },
-                showlegend: false
-            };
-
-        } else {
-            // 2D scatter
-            const nodeX = nodes.map(node => node.x);
-            const nodeY = nodes.map(node => node.y);
-            const labels = nodes.map(node => node.label);
-            const ids = nodes.map(node => node.id);
-            const sizes = nodes.map(node => node.size);
-            const nodeColors = nodes.map(node => node.color);
-
-            data = [
-                {
-                    x: nodeX,
-                    y: nodeY,
-                    mode: 'markers',
-                    type: 'scatter',
-                    marker: {
-                        size: sizes,
-                        color: nodeColors,
-                        opacity: 0.9,
-                        line: {
-                            color: '#FFFFFF',
-                            width: 0.5
-                        },
-                    },
-                    text: labels,
-                    customdata: ids,
-                    hoverinfo: 'text',
-                    hoverlabel: {
-                        bgcolor: '#FFFFFF',
-                        font: {color: '#000000'},
-                    }
-                }
-            ];
-
-            layout = {
-                dragmode: 'select',
-                xaxis: {visible: false},
-                yaxis: {visible: false},
-                paper_bgcolor: '#ffffff',
-                margin: { l: 0, r: 0, b: 0, t: 0 },
-                showlegend: false
-            };
+        if (obj.t) {
+          rawText += obj.t;
+          botBubble.textContent = rawText;   // raw text while streaming
+          chatMessages.scrollTop = chatMessages.scrollHeight;
         }
+      }
+    }
 
-        Plotly.newPlot('graph', data, layout).then(function() {
-            document.getElementById('loading-screen').style.display = 'none';
-        });
+    // Streaming done — render markdown
+    _finishStream(botBubble, rawText);
 
-        // Update list of selected proteins
-        function updateSelectedProteinsList() {
-            selectedProteinsList.innerHTML = '';
-            selectedNodeIds.forEach(function(id) {
-                const node = nodes.find(n => n.id === id);
-                if (node) {
-                    const li = document.createElement('li');
-                    li.innerHTML = `${node.protein_name} 
-                        <button class="remove-protein" 
-                                data-node-id="${id}" 
-                                style="margin-left:10px;background:#dc3545;border:none;color:#fff;
-                                       border-radius:3px;padding:2px 5px;cursor:pointer;">
-                            X
-                        </button>`;
-                    selectedProteinsList.appendChild(li);
-                }
-            });
-        }
+  } catch (err) {
+    removeTyping();
+    if (botBubble) {
+      botBubble.classList.remove('streaming');
+      botBubble.textContent = 'Connection error — please try again.';
+    } else {
+      appendMsg('bot', '<p>Connection error — please try again.</p>');
+    }
+  } finally {
+    chatSend.disabled = false;
+    chatInput.focus();
+  }
+}
 
-        // Single-click selection
-        graphDiv.on('plotly_click', function(data) {
-            var point = data.points[0];
-            if(!point) return;
-            var node_id = point.customdata;
-            if (selectedNodeIds.includes(node_id)) {
-                selectedNodeIds = selectedNodeIds.filter(id => id !== node_id);
-            } else {
-                selectedNodeIds.push(node_id);
-            }
-            updateSelectedProteinsList();
-        });
+function _createStreamBubble() {
+  const wrap = document.createElement('div'); wrap.className = 'c-msg bot';
+  const lbl  = document.createElement('div'); lbl.className  = 'c-label';
+  lbl.textContent = 'PLVis AI';
+  const bub  = document.createElement('div'); bub.className  = 'c-bubble streaming';
+  wrap.append(lbl, bub);
+  chatMessages.appendChild(wrap);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return bub;
+}
 
-        // Box-select (in 2D)
-        graphDiv.on('plotly_selected', function(eventData) {
-            if (!eventData) return;
-            selectedNodeIds = eventData.points.map(pt => pt.customdata);
-            updateSelectedProteinsList();
-        });
+function _finishStream(bubble, rawText) {
+  bubble.classList.remove('streaming');
+  if (rawText.trim()) {
+    const html = DOMPurify.sanitize(marked.parse(rawText));
+    bubble.innerHTML = html;
+  } else {
+    bubble.textContent = 'No response received.';
+  }
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
 
-        // Remove single protein
-        document.getElementById('selected-proteins-container').addEventListener('click', function(e) {
-            if (e.target && e.target.classList.contains('remove-protein')) {
-                var nodeIdToRemove = parseInt(e.target.getAttribute('data-node-id'));
-                selectedNodeIds = selectedNodeIds.filter(id => id !== nodeIdToRemove);
-                updateSelectedProteinsList();
-            }
-        });
-
-        // Clear all
-        clearAllButton.addEventListener('click', function() {
-            selectedNodeIds = [];
-            updateSelectedProteinsList();
-        });
-
-        // Chatbot
-        var sendButton = document.getElementById('chatbot-send');
-        var inputField = document.getElementById('chatbot-input');
-        var messagesDiv = document.getElementById('chatbot-messages');
-
-        sendButton.onclick = function(){
-            var message = inputField.value.trim();
-            if (message === '') {
-                alert('Please enter a message.');
-                return;
-            }
-
-            var includeSimilar = document.getElementById('include-similar').checked;
-            messagesDiv.innerHTML += '<p><strong>You:</strong> ' + message + '</p>';
-            inputField.value = '';
-
-            fetch('/chatbot', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    node_ids: selectedNodeIds,
-                    message: message,
-                    include_similar: includeSimilar
-                })
-            })
-            .then(response => response.json())
-            .then(data => {
-                messagesDiv.innerHTML += '<p><strong>PLVis:</strong></p>' + data.message;
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                messagesDiv.innerHTML += '<p><strong>PLVis:</strong> An error occurred. Please try again later.</p>';
-            });
-        };
-
-        // Dark mode toggle
-        const darkModeToggle = document.getElementById('dark-mode-toggle');
-        darkModeToggle.addEventListener('click', () => {
-            document.body.classList.toggle('dark-mode');
-        });
-    </script>
-
+// ── INIT ─────────────────────────────────────────────────────
+renderProteinList();
+</script>
 </body>
 </html>
